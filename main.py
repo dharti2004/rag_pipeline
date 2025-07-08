@@ -28,15 +28,12 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
                 "file": file.filename,
                 "chunks": chunks
             })
-
         except Exception as e:
             results.append({
                 "message": f"Failed to embed chunks from '{file.filename}'",
                 "error": str(e)
             })
-
     return JSONResponse(content=results)
-
 
 @app.post("/ask")
 async def ask_question(
