@@ -46,13 +46,8 @@ class CustomPDFPlumberLoader:
         blob = Blob.from_path(self.file_path)
         parser = PDFPlumberParser(extract_images=self.extract_images)
         docs = parser.parse(blob)
-
         for doc in docs:
             page_num = doc.metadata.get("page", 1)
-            content = doc.page_content.strip()
-            if content:
-                chunks.extend(self.extract_text_chunks(content, file_name, page_num, max_chars))
-
             images = doc.metadata.get("images", [])
             for image_data in enumerate(images):
                 chunks.append({
@@ -65,17 +60,37 @@ class CustomPDFPlumberLoader:
 
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for i, page in enumerate(pdf.pages, start=1):
-                tables = page.extract_tables()
-                for tbl_idx, table in enumerate(tables):
-                    if table:
-                        formatted_table = self.format_table(table)
-                        chunks.append({
-                            "page_content": formatted_table,
-                            "metadata": {
-                                "file": file_name,
-                                "page": i,
-                            }
-                        })
+                tables = page.extract_tables() or []
+                table_bboxes = []
+                table_texts = []
+
+                found_tables = page.find_tables()
+                for table, table_obj in zip(tables, found_tables):
+                    table_text = self.format_table(table)
+                    table_texts.append(table_text)
+                    table_bboxes.append(table_obj.bbox if table_obj else None)
+                    chunks.append({
+                        "page_content": table_text,
+                        "metadata": {
+                            "file": file_name,
+                            "page": i,
+                        }
+                    })
+                if table_bboxes:
+                    def filter_non_table(obj):
+                        for bbox in table_bboxes:
+                            if bbox and obj.get('x0', float('inf')) >= bbox[0] and obj.get('x1', 0) <= bbox[2] and \
+                               obj.get('top', float('inf')) >= bbox[1] and obj.get('bottom', 0) <= bbox[3]:
+                                return False
+                        return True
+
+                    filtered_page = page.filter(filter_non_table)
+                    filtered_text = filtered_page.extract_text() or ""
+                    for table_text in table_texts:
+                        filtered_text = filtered_text.replace(table_text, "")
+                    filtered_text = "\n".join(line.strip() for line in filtered_text.splitlines() if line.strip())
+                    if filtered_text:
+                        chunks.extend(self.extract_text_chunks(filtered_text, file_name, i, max_chars))
 
         return chunks
 
@@ -94,7 +109,6 @@ def normalize_content(content):
 
 
 def build_documents_from_chunks(chunks_by_type: Dict[str, List[Dict[str, Any]]]) -> List[Document]:
-    """Convert each chunk dict into a LangChain Document with minimal metadata."""
     documents = []
     for chunk in chunks_by_type.get("chunks", []):
         metadata = chunk.get("metadata", {})
