@@ -1,4 +1,3 @@
-```markdown
 # RAG Pipeline
 
 This project implements a **Retrieval-Augmented Generation (RAG)** pipeline using **FastAPI**, **LangChain**, and **Qdrant** to enable question-answering over uploaded PDF documents. It supports document ingestion, vector storage, and conversational query processing with context-aware responses.
